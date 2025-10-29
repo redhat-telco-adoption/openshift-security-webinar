@@ -1,6 +1,6 @@
 # OpenShift and ACM Security Demo - Presentation Script
 
-**Duration:** 40-45 minutes
+**Duration:** 50-55 minutes
 **Audience:** Technical stakeholders, architects, security teams
 **Goal:** Demonstrate defense-in-depth security in OpenShift with ACM
 
@@ -42,12 +42,12 @@ oc get pods -n security-demo
 
 ### Set Expectations
 
-> "Here's what we'll cover in the next 40 minutes:
+> "Here's what we'll cover in the next 50 minutes:
 > - Pod Security Standards that block dangerous containers at the door
 > - Security Context Constraints that enforce OpenShift-specific policies
 > - Network Policies that implement zero-trust networking
 > - Role-Based Access Control for API-level authorization
-> - ACM Policies for multi-cluster governance
+> - **Nine comprehensive ACM Policies** covering pod security, image security, certificate management, etcd encryption, namespace security, network governance, RBAC governance, resource quotas, and vulnerability scanning
 > - And we'll see **five actual security violations** being blocked
 >
 > Let's dive in."
@@ -365,42 +365,16 @@ oc describe rolebinding developer-binding -n security-demo
 
 ---
 
-## Section 6: ACM Governance Policies (8 minutes)
+## Section 6: ACM Governance Policies (15 minutes)
 
 ### Transition
 
 **Say:**
-> "Everything we've seen so far applies to a single cluster. But what about organizations running tens or hundreds of OpenShift clusters? How do you enforce consistent security policies across all of them? That's where Red Hat Advanced Cluster Management comes in."
-
-### Show ACM Policies
-
-**Command:**
-```bash
-oc get policies -A
-```
-
-**Say:**
-> "ACM Policies allow you to define security and compliance policies once and enforce them across your entire fleet of clusters. Let me show you an example."
-
-**Command:**
-```bash
-oc describe policy policy-pod-security-standards -n default
-```
-
-**Say:**
-> "This policy ensures that Pod Security Standards are enforced across all managed clusters. Notice the `remediationAction: enforce`—ACM will automatically create the namespace labels we showed earlier on all target clusters.
+> "Everything we've seen so far applies to a single cluster. But what about organizations running tens or hundreds of OpenShift clusters? How do you enforce consistent security policies across all of them? That's where Red Hat Advanced Cluster Management comes in.
 >
-> Let's look at the placement rule."
+> We've implemented a comprehensive governance framework with nine security policies covering everything from pod security to encryption at rest. Let me show you how this scales security governance across your entire infrastructure."
 
-**Command:**
-```bash
-oc get placementrule placement-all-clusters -n default -o yaml
-```
-
-**Say:**
-> "This placement rule defines which clusters receive this policy. In this case, it targets clusters with the 'dev' or 'prod' environment label. You can target by region, cloud provider, compliance tier, or any custom label."
-
-### Show Policy Compliance
+### Show ACM Policies Overview
 
 **Command:**
 ```bash
@@ -408,11 +382,182 @@ oc get policies -n default
 ```
 
 **Say:**
-> "ACM continuously monitors compliance. If a cluster drifts out of compliance—someone manually changes a setting—ACM will detect it and, depending on your remediation setting, either alert you or automatically fix it.
->
-> This is governance at scale. You're not logging into each cluster to check settings—ACM gives you a centralized view of compliance across your entire infrastructure."
+> "Here are all nine policies in our governance framework. Each one enforces a specific security domain, and together they provide defense-in-depth at the multi-cluster level. Let me walk you through the most critical ones."
 
-### Show Compliance Operator Policy
+### Policy 1: Pod Security Standards
+
+**Say:**
+> "First, let's look at how we enforce Pod Security Standards across all clusters."
+
+**Command:**
+```bash
+oc describe policy policy-pod-security-standards -n default | head -40
+```
+
+**Say:**
+> "This policy ensures that Pod Security Standards are enforced across all managed clusters. Notice the `remediationAction: enforce`—ACM will automatically create the namespace labels we showed earlier on all target clusters. This means every new cluster in your fleet automatically gets the same security baseline we demonstrated earlier."
+
+### Policy 2: Image Security
+
+**Say:**
+> "Next is image security—one of the most critical supply chain controls. Let me show you."
+
+**Command:**
+```bash
+oc describe policy policy-image-security -n default | head -50
+```
+
+**Say:**
+> "This policy has three enforcement rules:
+>
+> First, it blocks container images with the `:latest` tag in production namespaces. Why? Because 'latest' is mutable—someone could push a malicious image and your pods would pull it on restart. Production needs immutability.
+>
+> Second, it enforces trusted registries. Only images from Red Hat registries or your internal registry are allowed. This prevents supply chain attacks via compromised public images.
+>
+> Third, it enforces proper `imagePullPolicy` to prevent stale cached images.
+>
+> Notice this uses Go templates to dynamically evaluate running pods across all clusters. This is continuous compliance monitoring, not a one-time check."
+
+### Policy 3: Certificate Management
+
+**Say:**
+> "Expired certificates cause production outages. Let's see how ACM prevents this."
+
+**Command:**
+```bash
+oc describe policy policy-certificate-management -n default | grep -A 20 "spec:"
+```
+
+**Say:**
+> "This policy monitors certificate expiration across all clusters:
+> - API server certificates: Must have at least 30 days before expiration
+> - Ingress certificates: Must have at least 30 days
+> - Service certificates: Must have at least 10 days
+> - CA certificates: Must have at least 365 days
+>
+> If a certificate is approaching expiration, the policy goes non-compliant and alerts your team. This is proactive certificate management—you find out before your customers do."
+
+### Policy 4: etcd Encryption (Critical for Compliance)
+
+**Say:**
+> "Now let's look at one of the most important compliance controls: encryption at rest for etcd. This is where all your Kubernetes secrets are stored."
+
+**Command:**
+```bash
+oc describe policy policy-etcd-encryption -n default
+```
+
+**Say:**
+> "This policy has four checks:
+>
+> First, it verifies that AES-CBC encryption is enabled in the APIServer configuration.
+>
+> Second, it ensures the encryption configuration secret exists in `openshift-config`.
+>
+> Third, it monitors the encryption progress status—encryption is a background process that can take time.
+>
+> Fourth, it verifies that encryption is completed and active.
+>
+> This is critical for compliance frameworks like PCI-DSS, HIPAA, and SOC 2. Notice that this policy only targets production clusters—we use placement rules to apply policies selectively."
+
+**Command:**
+```bash
+oc get placementrule placement-production-clusters -n default -o yaml
+```
+
+**Say:**
+> "See this placement rule? It only selects clusters labeled with `environment=prod` or `environment=production`. Development clusters don't get this policy—they don't need the overhead. This is intelligent, context-aware governance."
+
+### Policy 5: RBAC Governance
+
+**Say:**
+> "RBAC misconfigurations are a common attack vector. Let me show you how we prevent them at scale."
+
+**Command:**
+```bash
+oc describe policy policy-rbac-governance -n default | head -60
+```
+
+**Say:**
+> "This policy has six RBAC controls, and they're all about preventing privilege escalation:
+>
+> Control 1: Prevents `cluster-admin` from being bound to service accounts outside of system namespaces. If an attacker compromises a pod, they shouldn't automatically get cluster-admin.
+>
+> Control 2: Detects wildcard permissions in roles—things like `verbs: ['*']` or `resources: ['*']`. These are overly permissive and violate least-privilege.
+>
+> Control 3: Detects privilege escalation verbs like `escalate` and `bind` on RBAC resources. These allow users to grant themselves more permissions.
+>
+> Control 4: Requires all pods to use dedicated service accounts, not the default service account.
+>
+> Control 5: Disables `automountServiceAccountToken` unless explicitly needed—reduces API credential exposure.
+>
+> Control 6: Automatically creates read-only viewer roles in production namespaces.
+>
+> Notice the use of Go templates to dynamically scan all ClusterRoleBindings and Roles. This isn't static policy—it's continuous detection of misconfigurations."
+
+### Policy 6: Network Policy Governance
+
+**Say:**
+> "We demonstrated Network Policies earlier at the single-cluster level. Let's see how ACM ensures they're deployed everywhere."
+
+**Command:**
+```bash
+oc describe policy policy-network-security -n default | grep -A 15 "deny-all"
+```
+
+**Say:**
+> "This policy enforces zero-trust networking at scale:
+> - Default-deny ingress in all application namespaces
+> - Default-deny egress in production namespaces
+> - Explicit allow rules for DNS resolution
+> - Explicit allow rules for monitoring
+> - No cross-namespace communication without explicit policy
+>
+> If a cluster admin forgets to deploy network policies in a new namespace, ACM detects it and either alerts or auto-remediates. You get consistent micro-segmentation across your entire fleet."
+
+### Policy 7: Resource Quotas (DoS Prevention)
+
+**Say:**
+> "Resource exhaustion is a denial-of-service attack. Let's see how we prevent it."
+
+**Command:**
+```bash
+oc describe policy policy-resource-quotas -n default | grep -A 10 "ResourceQuota"
+```
+
+**Say:**
+> "This policy enforces resource limits at the namespace level:
+> - Namespace quotas: Maximum CPU and memory per namespace
+> - Pod limits: Maximum resources per pod
+> - Container limits: Default CPU and memory for containers
+> - Priority classes: Scheduling priorities for critical workloads
+>
+> This prevents a single namespace or pod from consuming all cluster resources. It enables fair multi-tenancy and prevents noisy neighbor problems."
+
+### Policy 8: Namespace Security Baseline
+
+**Say:**
+> "Let me show you a policy that ties multiple controls together."
+
+**Command:**
+```bash
+oc describe policy policy-namespace-security -n default | head -50
+```
+
+**Say:**
+> "This policy ensures that ALL user namespaces have a security baseline:
+> - Pod Security labels must be set (restricted for production)
+> - NetworkPolicies must exist (default-deny)
+> - ResourceQuotas must exist
+> - Workloads cannot be deployed in the `default` namespace
+> - Ownership and environment labels are required
+>
+> This is namespace-level governance. It prevents 'unprotected' namespaces from being created. Every namespace automatically gets a security baseline."
+
+### Policy 9: Container Security Operator
+
+**Say:**
+> "Finally, let's look at vulnerability scanning."
 
 **Command:**
 ```bash
@@ -420,12 +565,73 @@ oc describe policy policy-container-security-operator -n default
 ```
 
 **Say:**
-> "Here's another policy that ensures the Container Security Operator is installed. This operator scans container images for vulnerabilities. ACM can ensure it's deployed and configured consistently across all clusters."
+> "This policy ensures the Container Security Operator is deployed on all clusters. This operator:
+> - Scans container images for CVEs
+> - Integrates with Red Hat's vulnerability database
+> - Reports vulnerabilities in the OpenShift console
+> - Enables proactive patching
+>
+> The policy verifies the operator namespace exists and the operator is running. If someone accidentally uninstalls it, ACM detects the drift and alerts."
+
+### Show Policy Compliance Dashboard
+
+**Command:**
+```bash
+oc get policies -n default -o custom-columns=NAME:.metadata.name,COMPLIANT:.status.compliant
+```
+
+**Say:**
+> "Here's the compliance dashboard. Each policy shows whether clusters are compliant or not. In a real multi-cluster environment, you'd see which specific clusters are violating which policies.
+>
+> ACM continuously monitors compliance. If a cluster drifts out of compliance—someone manually changes a setting, disables a control, or misconfigures a namespace—ACM detects it within minutes and either alerts you or automatically remediates it."
+
+### Show Placement Strategy
+
+**Command:**
+```bash
+oc get placementrule -n default
+```
+
+**Say:**
+> "We use two placement strategies:
+>
+> `placement-all-clusters`: Applies to all managed clusters with dev or prod labels. Used for policies like Pod Security Standards, RBAC governance, and network policies.
+>
+> `placement-production-clusters`: Applies only to production clusters. Used for policies like etcd encryption that have performance or complexity implications.
+>
+> This gives you fine-grained control—different security postures for different environments, all managed centrally."
+
+### Compliance Mapping
+
+**Say:**
+> "These nine policies map to multiple compliance frameworks:"
+
+**Command:**
+```bash
+oc get policies -n default -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.policy\.open-cluster-management\.io/standards}{"\n"}{end}' | column -t
+```
+
+**Say:**
+> "You can see annotations for NIST SP 800-53, CIS Kubernetes Benchmark, PCI-DSS, HIPAA. These aren't just security controls—they're compliance evidence. When auditors ask 'How do you enforce encryption at rest?' you show them the etcd encryption policy. When they ask 'How do you prevent privilege escalation?' you show them the RBAC governance policy.
+>
+> ACM provides automated compliance reporting. You can export policy status for SOC 2 audits, PCI-DSS assessments, or HIPAA reviews."
 
 ### Key Takeaway
 
 **Say:**
-> "ACM Policies are how you scale security. Define once, enforce everywhere, monitor continuously. This is critical for enterprises with multiple clusters, multiple teams, and strict compliance requirements."
+> "ACM Policies are how you scale security governance:
+>
+> **Define once, enforce everywhere**: Write a policy once, apply it to 100 clusters.
+>
+> **Continuous compliance**: Not a point-in-time audit, but continuous monitoring and drift detection.
+>
+> **Intelligent targeting**: Different policies for different environments using placement rules.
+>
+> **Automated remediation**: Policies can detect violations or automatically fix them.
+>
+> **Compliance as code**: Map policies to NIST, CIS, PCI-DSS, HIPAA—compliance becomes automated.
+>
+> This is the difference between securing one cluster manually and securing an entire fleet programmatically. This is governance at scale."
 
 ---
 
@@ -497,13 +703,13 @@ oc get deployment secure-app -n security-demo -o yaml | grep -A 15 "securityCont
 **Say:**
 > "Here's the complete picture of defense-in-depth:
 
-| Layer | What It Does | What We Blocked |
-|-------|-------------|-----------------|
+| Layer | What It Does | What We Blocked/Enforced |
+|-------|-------------|-------------------------|
 | **Pod Security Standards** | Namespace-level admission control | Privileged containers, root users |
 | **Security Context Constraints** | OpenShift admission control | Host access, dangerous capabilities |
 | **Network Policies** | Runtime network isolation | Cross-namespace communication |
 | **RBAC** | API access control | Enforced developer permissions |
-| **ACM Policies** | Multi-cluster governance | Compliance monitoring |
+| **ACM Policies (9 policies)** | Multi-cluster governance | Pod security, image security, certificates, etcd encryption, namespace security, network policies, RBAC governance, resource quotas, vulnerability scanning |
 | **Secure Workloads** | Application best practices | Properly configured, running in prod |
 
 **Say:**
@@ -541,6 +747,8 @@ oc get deployment secure-app -n security-demo -o yaml | grep -A 15 "securityCont
 > "Let me wrap up what we've seen today.
 >
 > We demonstrated how Red Hat OpenShift and Advanced Cluster Management provide comprehensive, automated security enforcement. You saw five real security violations blocked in real-time—not warnings, not alerts for later review, but immediate rejection at the API level.
+>
+> Beyond that, you saw nine ACM governance policies that scale these controls across entire fleets of clusters—from pod security to encryption at rest, from RBAC governance to certificate management. This is security at enterprise scale.
 >
 > This security is:
 > - **Automatic** — It's enforced by the platform, not dependent on developers remembering to follow guidelines
@@ -595,7 +803,16 @@ A: "Pod Security Standards and Network Policies are Kubernetes-native, so they w
 
 **Q: "How do you handle compliance requirements like PCI-DSS or HIPAA?"**
 
-A: "ACM includes pre-built policy sets for common compliance frameworks—PCI-DSS, HIPAA, NIST 800-53, CIS benchmarks. You can deploy these policies across your fleet and get continuous compliance reporting. For example, the Pod Security Standards we showed map directly to CIS Kubernetes benchmark controls. Red Hat also provides the Compliance Operator which runs OpenSCAP scans on cluster nodes."
+A: "ACM includes pre-built policy sets for common compliance frameworks—PCI-DSS, HIPAA, NIST 800-53, CIS benchmarks. You can deploy these policies across your fleet and get continuous compliance reporting. For example, the Pod Security Standards we showed map directly to CIS Kubernetes benchmark controls. Red Hat also provides the Compliance Operator which runs OpenSCAP scans on cluster nodes. The nine policies we demonstrated today are all annotated with compliance mappings—when auditors ask how you enforce specific controls, you show them the ACM policy status dashboard."
+
+**Q: "Which of the nine ACM policies should we implement first?"**
+
+A: "Start with these three in order:
+1. **Pod Security Standards policy**: This is foundational—it blocks the most common container security violations like privileged containers and root users. Set it to 'enforce' mode.
+2. **Network Policy Governance**: Implement default-deny network policies to prevent lateral movement. Start with 'inform' mode to see what breaks, then switch to 'enforce'.
+3. **RBAC Governance policy**: This detects privilege escalation risks and overly permissive roles. Run it in 'inform' mode initially to identify issues without blocking operations.
+
+Once those are stable, add the others based on your compliance requirements. For example, if you're subject to PCI-DSS or HIPAA, the etcd encryption policy becomes critical."
 
 **Q: "What about container image scanning?"**
 
