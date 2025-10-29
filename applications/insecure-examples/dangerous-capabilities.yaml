@@ -1,0 +1,43 @@
+# INSECURE EXAMPLE - DO NOT USE IN PRODUCTION
+# This deployment attempts to add dangerous Linux capabilities
+# Expected Result: REJECTED by Pod Security Standards and SCC
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: capability-attack
+  namespace: security-demo
+  labels:
+    app: capability-attack
+    security-demo: violation
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: capability-attack
+  template:
+    metadata:
+      labels:
+        app: capability-attack
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: attacker
+        image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+        command: ["/bin/sh"]
+        args: ["-c", "while true; do echo 'Attempting capability abuse'; sleep 10; done"]
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: true  # SECURITY VIOLATION
+          capabilities:
+            add:
+            - SYS_ADMIN    # SECURITY VIOLATION: Powerful capability
+            - NET_ADMIN    # SECURITY VIOLATION: Network administration
+            - SYS_PTRACE   # SECURITY VIOLATION: Process tracing
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi

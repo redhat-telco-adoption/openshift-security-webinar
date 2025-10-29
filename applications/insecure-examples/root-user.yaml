@@ -1,0 +1,33 @@
+# INSECURE EXAMPLE - DO NOT USE IN PRODUCTION
+# This deployment attempts to run as root user
+# Expected Result: REJECTED by Pod Security Standards (restricted profile)
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: root-user-attack
+  namespace: security-demo
+  labels:
+    app: root-user-attack
+    security-demo: violation
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: root-user-attack
+  template:
+    metadata:
+      labels:
+        app: root-user-attack
+    spec:
+      containers:
+      - name: attacker
+        image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+        command: ["/bin/sh"]
+        args: ["-c", "whoami; id; sleep 3600"]
+        securityContext:
+          runAsUser: 0  # SECURITY VIOLATION: Running as root (UID 0)
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi

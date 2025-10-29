@@ -1,0 +1,59 @@
+# INSECURE EXAMPLE - DO NOT USE IN PRODUCTION
+# This deployment attempts various host access violations
+# Expected Result: REJECTED by Pod Security Standards and SCC
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: host-access-attack
+  namespace: security-demo
+  labels:
+    app: host-access-attack
+    security-demo: violation
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: host-access-attack
+  template:
+    metadata:
+      labels:
+        app: host-access-attack
+    spec:
+      hostNetwork: true  # SECURITY VIOLATION: Access to host network
+      hostPID: true      # SECURITY VIOLATION: Access to host PID namespace
+      hostIPC: true      # SECURITY VIOLATION: Access to host IPC namespace
+      containers:
+      - name: attacker
+        image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+        command: ["/bin/sh"]
+        args: ["-c", "while true; do echo 'Attempting host access'; sleep 10; done"]
+        securityContext:
+          runAsNonRoot: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+---
+# Example: Host path volume mount
+apiVersion: v1
+kind: Pod
+metadata:
+  name: host-path-attack
+  namespace: security-demo
+spec:
+  containers:
+  - name: attacker
+    image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+    command: ["sleep", "3600"]
+    volumeMounts:
+    - name: hostfs
+      mountPath: /host
+  volumes:
+  - name: hostfs
+    hostPath:
+      path: /  # SECURITY VIOLATION: Mounting host filesystem
+      type: Directory

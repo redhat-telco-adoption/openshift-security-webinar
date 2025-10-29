@@ -1,0 +1,50 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-container-security-operator
+  namespace: default
+  annotations:
+    policy.open-cluster-management.io/standards: NIST SP 800-53
+    policy.open-cluster-management.io/categories: SI System and Information Integrity
+    policy.open-cluster-management.io/controls: SI-4 Information System Monitoring
+spec:
+  remediationAction: inform
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: container-security-operator-ns
+        spec:
+          remediationAction: inform
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: openshift-container-security
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: container-security-operator-subscription
+        spec:
+          remediationAction: inform
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: operators.coreos.com/v1alpha1
+                kind: Subscription
+                metadata:
+                  name: container-security-operator
+                  namespace: openshift-container-security
+                spec:
+                  channel: stable
+                  installPlanApproval: Automatic
+                  name: container-security-operator
+                  source: redhat-operators
+                  sourceNamespace: openshift-marketplace

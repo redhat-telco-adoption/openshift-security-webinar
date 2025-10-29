@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: security-demo
+  labels:
+    security-level: "restricted"
+    pod-security.kubernetes.io/enforce: "restricted"
+    pod-security.kubernetes.io/audit: "restricted"
+    pod-security.kubernetes.io/warn: "restricted"
+  annotations:
+    openshift.io/description: "Namespace for security demo applications"

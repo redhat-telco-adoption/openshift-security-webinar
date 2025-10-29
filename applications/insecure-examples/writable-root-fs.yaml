@@ -1,0 +1,43 @@
+# INSECURE EXAMPLE - Acceptable but not best practice
+# This deployment runs without read-only root filesystem
+# Expected Result: WARNING (may be accepted but generates audit logs)
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: writable-rootfs
+  namespace: security-demo
+  labels:
+    app: writable-rootfs
+    security-demo: warning
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: writable-rootfs
+  template:
+    metadata:
+      labels:
+        app: writable-rootfs
+    spec:
+      serviceAccountName: default
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+        command: ["/bin/sh"]
+        args: ["-c", "echo 'test' > /tmp/file; while true; do sleep 30; done"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          capabilities:
+            drop:
+            - ALL
+          # BEST PRACTICE MISSING: readOnlyRootFilesystem: true
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi

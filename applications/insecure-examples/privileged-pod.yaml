@@ -1,0 +1,47 @@
+# INSECURE EXAMPLE - DO NOT USE IN PRODUCTION
+# This deployment attempts to run with privileged access
+# Expected Result: REJECTED by Pod Security Standards and SCC
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: privileged-attack
+  namespace: security-demo
+  labels:
+    app: privileged-attack
+    security-demo: violation
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: privileged-attack
+  template:
+    metadata:
+      labels:
+        app: privileged-attack
+    spec:
+      containers:
+      - name: attacker
+        image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+        command: ["/bin/sh"]
+        args: ["-c", "while true; do echo 'Attempting privileged access'; sleep 10; done"]
+        securityContext:
+          privileged: true  # SECURITY VIOLATION: Privileged containers can access host resources
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+---
+# Alternative: Simple pod for quick testing
+apiVersion: v1
+kind: Pod
+metadata:
+  name: privileged-pod-test
+  namespace: security-demo
+spec:
+  containers:
+  - name: test
+    image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+    command: ["sleep", "3600"]
+    securityContext:
+      privileged: true  # VIOLATION
