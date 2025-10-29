@@ -1,0 +1,131 @@
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-image-security
+  namespace: default
+  annotations:
+    policy.open-cluster-management.io/standards: NIST SP 800-53
+    policy.open-cluster-management.io/categories: CM Configuration Management
+    policy.open-cluster-management.io/controls: CM-5 Access Restrictions for Change
+    policy.open-cluster-management.io/description: |
+      Enforce image pull policies and trusted registries to prevent
+      unauthorized or vulnerable container images from running in clusters
+spec:
+  remediationAction: inform
+  disabled: false
+  policy-templates:
+    # Policy 1: Enforce image pull policy
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-imagepullpolicy-always
+        spec:
+          remediationAction: inform
+          severity: medium
+          namespaceSelector:
+            include:
+              - "security-demo"
+              - "production"
+              - "staging"
+            exclude:
+              - "kube-*"
+              - "openshift-*"
+          object-templates-raw: |
+            {{- range (lookup "v1" "Pod" "" "").items }}
+            {{- if and (ne .metadata.namespace "kube-system") (ne .metadata.namespace "openshift") }}
+            - complianceType: mustnothave
+              objectDefinition:
+                apiVersion: v1
+                kind: Pod
+                metadata:
+                  name: {{ .metadata.name }}
+                  namespace: {{ .metadata.namespace }}
+                spec:
+                  containers:
+                    - imagePullPolicy: Never
+            {{- end }}
+            {{- end }}
+    # Policy 2: Block images with latest tag in production
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-disallow-latest-tag
+        spec:
+          remediationAction: inform
+          severity: high
+          namespaceSelector:
+            include:
+              - "production"
+              - "prod-*"
+          object-templates-raw: |
+            {{- range (lookup "v1" "Pod" "" "").items }}
+            {{- if contains "production" .metadata.namespace }}
+            {{- range .spec.containers }}
+            {{- if or (hasSuffix ":latest" .image) (not (contains ":" .image)) }}
+            - complianceType: mustnothave
+              objectDefinition:
+                apiVersion: v1
+                kind: Pod
+                metadata:
+                  name: {{ $.metadata.name }}
+                  namespace: {{ $.metadata.namespace }}
+                spec:
+                  containers:
+                    - name: {{ .name }}
+                      image: {{ .image }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+    # Policy 3: Require images from trusted registries
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-trusted-registries
+        spec:
+          remediationAction: inform
+          severity: high
+          namespaceSelector:
+            exclude:
+              - "kube-*"
+              - "openshift-*"
+          object-templates-raw: |
+            {{- range (lookup "v1" "Pod" "" "").items }}
+            {{- $isSystemNamespace := or (hasPrefix "kube-" .metadata.namespace) (hasPrefix "openshift-" .metadata.namespace) }}
+            {{- if not $isSystemNamespace }}
+            {{- range .spec.containers }}
+            {{- $isTrusted := or (hasPrefix "registry.redhat.io" .image) (hasPrefix "quay.io/redhat" .image) (hasPrefix "registry.access.redhat.com" .image) (hasPrefix "image-registry.openshift-image-registry.svc" .image) }}
+            {{- if not $isTrusted }}
+            - complianceType: mustnothave
+              objectDefinition:
+                apiVersion: v1
+                kind: Pod
+                metadata:
+                  name: {{ $.metadata.name }}
+                  namespace: {{ $.metadata.namespace }}
+                spec:
+                  containers:
+                    - name: {{ .name }}
+                      image: {{ .image }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: binding-image-security
+  namespace: default
+placementRef:
+  name: placement-all-clusters
+  kind: PlacementRule
+  apiGroup: apps.open-cluster-management.io
+subjects:
+  - name: policy-image-security
+    kind: Policy
+    apiGroup: policy.open-cluster-management.io

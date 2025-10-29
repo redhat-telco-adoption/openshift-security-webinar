@@ -1,0 +1,185 @@
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-namespace-security
+  namespace: default
+  annotations:
+    policy.open-cluster-management.io/standards: NIST SP 800-53, CIS Kubernetes Benchmark
+    policy.open-cluster-management.io/categories: CM Configuration Management
+    policy.open-cluster-management.io/controls: CM-7 Least Functionality
+    policy.open-cluster-management.io/description: |
+      Enforce namespace-level security configurations including Pod Security
+      Standards labels, network policies, and resource isolation.
+spec:
+  remediationAction: enforce
+  disabled: false
+  policy-templates:
+    # Policy 1: Require Pod Security labels on all namespaces
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-namespace-pod-security-labels
+        spec:
+          remediationAction: inform
+          severity: high
+          namespaceSelector:
+            exclude:
+              - "kube-*"
+              - "openshift-*"
+              - "default"
+          object-templates-raw: |
+            {{- range (lookup "v1" "Namespace" "" "").items }}
+            {{- $isSystemNs := or (hasPrefix "kube-" .metadata.name) (hasPrefix "openshift-" .metadata.name) (eq .metadata.name "default") }}
+            {{- if not $isSystemNs }}
+            {{- $hasEnforce := index .metadata.labels "pod-security.kubernetes.io/enforce" }}
+            {{- if not $hasEnforce }}
+            - complianceType: mustnothave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: {{ .metadata.name }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+    # Policy 2: Enforce restricted PSS for production namespaces
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-production-restricted-pss
+        spec:
+          remediationAction: enforce
+          severity: high
+          namespaceSelector:
+            include:
+              - "production"
+              - "prod-*"
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  labels:
+                    pod-security.kubernetes.io/enforce: restricted
+                    pod-security.kubernetes.io/audit: restricted
+                    pod-security.kubernetes.io/warn: restricted
+    # Policy 3: Require default network deny-all in namespaces
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-namespace-default-deny
+        spec:
+          remediationAction: inform
+          severity: high
+          namespaceSelector:
+            include:
+              - "security-demo"
+              - "production"
+              - "staging"
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: networking.k8s.io/v1
+                kind: NetworkPolicy
+                metadata:
+                  name: default-deny-all
+                spec:
+                  podSelector: {}
+                  policyTypes:
+                    - Ingress
+                    - Egress
+    # Policy 4: Prevent default namespace usage
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-no-default-namespace
+        spec:
+          remediationAction: inform
+          severity: medium
+          object-templates-raw: |
+            {{- range (lookup "v1" "Pod" "default" "").items }}
+            {{- if not (hasPrefix "openshift-" .metadata.name) }}
+            - complianceType: mustnothave
+              objectDefinition:
+                apiVersion: v1
+                kind: Pod
+                metadata:
+                  name: {{ .metadata.name }}
+                  namespace: default
+            {{- end }}
+            {{- end }}
+    # Policy 5: Enforce namespace resource quotas
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-namespace-has-quota
+        spec:
+          remediationAction: inform
+          severity: medium
+          namespaceSelector:
+            include:
+              - "security-demo"
+              - "production"
+              - "staging"
+          object-templates-raw: |
+            {{- range (lookup "v1" "Namespace" "" "").items }}
+            {{- if or (eq .metadata.name "security-demo") (eq .metadata.name "production") (eq .metadata.name "staging") }}
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: ResourceQuota
+                metadata:
+                  namespace: {{ .metadata.name }}
+            {{- end }}
+            {{- end }}
+    # Policy 6: Require namespace labels for ownership and environment
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-namespace-labels
+        spec:
+          remediationAction: inform
+          severity: low
+          namespaceSelector:
+            exclude:
+              - "kube-*"
+              - "openshift-*"
+              - "default"
+          object-templates-raw: |
+            {{- range (lookup "v1" "Namespace" "" "").items }}
+            {{- $isSystemNs := or (hasPrefix "kube-" .metadata.name) (hasPrefix "openshift-" .metadata.name) (eq .metadata.name "default") }}
+            {{- if not $isSystemNs }}
+            {{- $hasOwner := index .metadata.labels "owner" }}
+            {{- $hasEnv := index .metadata.labels "environment" }}
+            {{- if or (not $hasOwner) (not $hasEnv) }}
+            - complianceType: mustnothave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: {{ .metadata.name }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: binding-namespace-security
+  namespace: default
+placementRef:
+  name: placement-all-clusters
+  kind: PlacementRule
+  apiGroup: apps.open-cluster-management.io
+subjects:
+  - name: policy-namespace-security
+    kind: Policy
+    apiGroup: policy.open-cluster-management.io

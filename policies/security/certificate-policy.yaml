@@ -1,0 +1,103 @@
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-certificate-management
+  namespace: default
+  annotations:
+    policy.open-cluster-management.io/standards: NIST SP 800-53
+    policy.open-cluster-management.io/categories: SC System and Communications Protection
+    policy.open-cluster-management.io/controls: SC-12 Cryptographic Key Establishment and Management
+    policy.open-cluster-management.io/description: |
+      Ensure certificates across clusters are valid, not expiring soon,
+      and meet minimum security standards. Monitors API server, ingress,
+      and service certificates.
+spec:
+  remediationAction: inform
+  disabled: false
+  policy-templates:
+    # Policy 1: Check API server certificate expiration
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: CertificatePolicy
+        metadata:
+          name: policy-api-server-cert
+        spec:
+          namespaceSelector:
+            include:
+              - "openshift-kube-apiserver"
+              - "openshift-apiserver"
+          remediationAction: inform
+          severity: high
+          minimumDuration: 720h  # 30 days
+          minimumCADuration: 8760h  # 365 days
+    # Policy 2: Check ingress controller certificates
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: CertificatePolicy
+        metadata:
+          name: policy-ingress-cert
+        spec:
+          namespaceSelector:
+            include:
+              - "openshift-ingress"
+              - "openshift-ingress-operator"
+          remediationAction: inform
+          severity: high
+          minimumDuration: 720h  # 30 days
+    # Policy 3: Check service serving certificates
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: CertificatePolicy
+        metadata:
+          name: policy-service-cert
+        spec:
+          namespaceSelector:
+            include:
+              - "security-demo"
+              - "production"
+          remediationAction: inform
+          severity: medium
+          minimumDuration: 240h  # 10 days
+          allowedSANPattern: "^[a-zA-Z0-9\\-\\.]*\\.svc$"
+    # Policy 4: Ensure cert-manager is deployed for automation
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-cert-manager-deployment
+        spec:
+          remediationAction: inform
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: cert-manager
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata:
+                  name: cert-manager
+                  namespace: cert-manager
+                status:
+                  conditions:
+                    - type: Available
+                      status: "True"
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: binding-certificate-management
+  namespace: default
+placementRef:
+  name: placement-all-clusters
+  kind: PlacementRule
+  apiGroup: apps.open-cluster-management.io
+subjects:
+  - name: policy-certificate-management
+    kind: Policy
+    apiGroup: policy.open-cluster-management.io

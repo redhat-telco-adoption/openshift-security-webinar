@@ -1,0 +1,127 @@
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-etcd-encryption
+  namespace: default
+  annotations:
+    policy.open-cluster-management.io/standards: NIST SP 800-53, PCI-DSS
+    policy.open-cluster-management.io/categories: SC System and Communications Protection
+    policy.open-cluster-management.io/controls: SC-28 Protection of Information at Rest
+    policy.open-cluster-management.io/description: |
+      Enforce encryption of sensitive data at rest in etcd. This policy
+      ensures that Secrets and other sensitive resources are encrypted
+      in the etcd database across all managed clusters.
+spec:
+  remediationAction: inform
+  disabled: false
+  policy-templates:
+    # Policy 1: Ensure etcd encryption is enabled
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-etcd-encryption-enabled
+        spec:
+          remediationAction: inform
+          severity: high
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: config.openshift.io/v1
+                kind: APIServer
+                metadata:
+                  name: cluster
+                spec:
+                  encryption:
+                    type: aescbc
+    # Policy 2: Verify encryption configuration exists
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-etcd-encryption-config
+        spec:
+          remediationAction: inform
+          severity: high
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Secret
+                metadata:
+                  name: encryption-config
+                  namespace: openshift-config
+                type: Opaque
+    # Policy 3: Monitor encryption progress
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-etcd-encryption-progress
+        spec:
+          remediationAction: inform
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: operator.openshift.io/v1
+                kind: KubeAPIServer
+                metadata:
+                  name: cluster
+                status:
+                  conditions:
+                    - type: Encrypted
+                      status: "True"
+    # Policy 4: Ensure secrets are encrypted
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-verify-secret-encryption
+        spec:
+          remediationAction: inform
+          severity: high
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: operator.openshift.io/v1
+                kind: OpenShiftAPIServer
+                metadata:
+                  name: cluster
+                status:
+                  conditions:
+                    - type: Encrypted
+                      status: "True"
+                      reason: EncryptionCompleted
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: binding-etcd-encryption
+  namespace: default
+placementRef:
+  name: placement-production-clusters
+  kind: PlacementRule
+  apiGroup: apps.open-cluster-management.io
+subjects:
+  - name: policy-etcd-encryption
+    kind: Policy
+    apiGroup: policy.open-cluster-management.io
+---
+apiVersion: apps.open-cluster-management.io/v1
+kind: PlacementRule
+metadata:
+  name: placement-production-clusters
+  namespace: default
+spec:
+  clusterConditions:
+    - status: "True"
+      type: ManagedClusterConditionAvailable
+  clusterSelector:
+    matchExpressions:
+      - key: environment
+        operator: In
+        values:
+          - prod
+          - production

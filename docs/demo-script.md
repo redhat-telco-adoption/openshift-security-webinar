@@ -189,29 +189,242 @@ oc describe rolebinding developer-binding -n security-demo
 - Resource-level permissions
 - Verb restrictions
 
-### 6. ACM Governance Policies (8 minutes)
+### 6. ACM Governance Policies (15 minutes)
 
-**Show ACM policies:**
+**Overview of ACM Policy Framework:**
+
+ACM (Advanced Cluster Management) provides centralized, multi-cluster security governance. Policies can be applied across hundreds of clusters from a single control plane.
+
+**Show all ACM policies:**
 ```bash
 oc get policies -n default
-oc describe policy policy-pod-security-standards -n default
 ```
 
-**Check policy compliance:**
+**Check policy compliance across clusters:**
 ```bash
 oc get policies -A
 ```
 
 **Key points to highlight:**
-- Multi-cluster governance
-- Automated compliance checking
-- Remediation capabilities (inform vs enforce)
-- Policy placement across clusters
+- Multi-cluster governance at scale (manage 100+ clusters from one place)
+- Automated compliance checking and remediation
+- Policy templating with Go templates for dynamic checks
+- Remediation modes: "inform" (detect only) vs "enforce" (auto-remediate)
+- Policy placement with cluster selectors (dev/prod, region, compliance zone)
 
-**Show Container Security Operator policy:**
+#### 6.1 Pod Security Standards Policy
+
+**Show Pod Security Standards enforcement policy:**
+```bash
+oc describe policy policy-pod-security-standards -n default
+```
+
+**Explain:**
+- Ensures all target clusters enforce Pod Security Standards
+- Creates/validates namespace labels automatically
+- Enforces restricted profile for security-demo namespace
+- Applied via PlacementRule to dev and prod clusters
+
+#### 6.2 Image Security Policy (NEW)
+
+**Show image security governance:**
+```bash
+oc describe policy policy-image-security -n default
+```
+
+**Key features demonstrated:**
+- ✅ Blocks `:latest` tags in production namespaces
+- ✅ Enforces trusted registries (Red Hat registries, internal registries only)
+- ✅ Requires imagePullPolicy to prevent stale cached images
+- ✅ Uses Go templates for dynamic policy evaluation across all pods
+
+**Test scenario - Check for latest tags:**
+```bash
+# This policy detects pods using :latest tag in production
+oc get policy policy-image-security -n default -o jsonpath='{.status.compliant}'
+```
+
+**Explain:**
+- Prevents supply chain attacks via untrusted images
+- Ensures image immutability (no `:latest` in prod)
+- Enforces organizational security standards
+
+#### 6.3 Certificate Management Policy (NEW)
+
+**Show certificate expiration monitoring:**
+```bash
+oc describe policy policy-certificate-management -n default
+```
+
+**Explain:**
+- Monitors API server, ingress controller, and service certificates
+- Alerts on certificates expiring within 30 days (configurable)
+- Ensures cert-manager is deployed for automated renewal
+- Prevents production outages due to expired certificates
+
+**Check certificate status:**
+```bash
+# View certificate policy compliance details
+oc get policy policy-certificate-management -n default -o yaml | grep -A 10 status
+```
+
+#### 6.4 etcd Encryption Policy (NEW)
+
+**Show data-at-rest encryption enforcement:**
+```bash
+oc describe policy policy-etcd-encryption -n default
+```
+
+**Key points:**
+- Enforces encryption of Secrets and sensitive data in etcd database
+- Critical for compliance requirements (PCI-DSS, HIPAA, SOC 2)
+- Validates encryption configuration exists and is active
+- Monitors encryption progress status
+- Applied ONLY to production clusters via PlacementRule
+
+**Check encryption status:**
+```bash
+# Production clusters should show Encrypted=True
+oc get policy policy-etcd-encryption -n default -o jsonpath='{.status.status[*].clustername}'
+```
+
+**Explain:**
+- Secrets are encrypted at rest using AES-CBC
+- Protects against storage compromise scenarios
+- Required for regulatory compliance
+
+#### 6.5 RBAC Governance Policy (NEW)
+
+**Show RBAC best practices enforcement:**
+```bash
+oc describe policy policy-rbac-governance -n default
+```
+
+**Key security controls:**
+- ❌ Prevents cluster-admin binding to service accounts (except system namespaces)
+- ❌ Detects wildcard (`*`) permissions in roles
+- ❌ Blocks privilege escalation capabilities (escalate, bind verbs)
+- ✅ Requires dedicated service accounts (not `default`)
+- ✅ Disables auto-mount of service account tokens
+
+**Explain:**
+- These policies prevent common privilege escalation attacks
+- Enforces least-privilege principle across all managed clusters
+- Detects overly permissive roles that violate security standards
+- Goes beyond Kubernetes RBAC to add governance layer
+
+**Show violation example:**
+```bash
+# Check for any cluster-admin violations
+oc get policy policy-rbac-governance -n default -o jsonpath='{.status.details[*].history[0].message}'
+```
+
+#### 6.6 Resource Quota Policy (NEW)
+
+**Show resource governance:**
+```bash
+oc describe policy policy-resource-quotas -n default
+```
+
+**Explain:**
+- Prevents resource exhaustion attacks (DoS prevention)
+- Enforces CPU/memory limits at namespace level
+- Requires resource requests/limits on ALL pods
+- Implements priority classes for workload scheduling
+- Ensures fair resource allocation across teams
+
+**Verify quota enforcement:**
+```bash
+oc get resourcequota -n security-demo
+oc get limitrange -n security-demo
+oc describe limitrange pod-limit-range -n security-demo
+```
+
+**Key points:**
+- Pods without resource limits are rejected
+- Prevents "noisy neighbor" problems
+- Enables cost allocation and chargeback
+
+#### 6.7 Namespace Security Policy (NEW)
+
+**Show namespace-level security enforcement:**
+```bash
+oc describe policy policy-namespace-security -n default
+```
+
+**Key features:**
+- ✅ Requires Pod Security labels on ALL user namespaces
+- ✅ Enforces restricted PSS for production namespaces
+- ✅ Mandates default-deny NetworkPolicies
+- ❌ Prevents workload deployment in `default` namespace
+- ✅ Requires ownership and environment labels for governance
+
+**Explain:**
+- Ensures consistent security baseline across all clusters
+- No "unprotected" namespaces can exist
+- Enables multi-tenancy with strong isolation
+
+#### 6.8 Network Policy Governance (NEW)
+
+**Show network security enforcement:**
+```bash
+oc describe policy policy-network-security -n default
+```
+
+**Explain:**
+- Implements zero-trust networking model
+- Enforces default-deny for BOTH ingress and egress
+- Allows only necessary traffic (DNS, monitoring)
+- Prevents cross-namespace communication
+- Restricts egress to external networks in production
+
+**Verify network policy compliance:**
+```bash
+oc get networkpolicies -n security-demo
+oc describe networkpolicy deny-all-ingress -n security-demo
+oc describe networkpolicy deny-all-egress -n security-demo
+```
+
+**Key points:**
+- Zero-trust: deny by default, allow explicitly
+- Micro-segmentation at the pod level
+- East-west traffic control (not just north-south)
+
+#### 6.9 Container Security Operator Policy
+
+**Show vulnerability scanning automation:**
 ```bash
 oc describe policy policy-container-security-operator -n default
 ```
+
+**Explain:**
+- Automatically deploys container security scanning operator
+- Integrates with Red Hat Quay vulnerability database
+- Provides image vulnerability reports in OpenShift console
+- Continuous monitoring of deployed container images
+- Detects CVEs in running containers
+
+**ACM Policy Summary:**
+
+ACM provides a powerful governance framework that:
+1. **Scales** - Manage security across 100+ clusters from one control plane
+2. **Prevents** - Enforces security BEFORE violations occur
+3. **Detects** - Continuously monitors for configuration drift
+4. **Remediates** - Can automatically fix non-compliant resources
+5. **Reports** - Provides compliance dashboards for auditors and security teams
+
+**Policy Count:**
+- 8 comprehensive policies covering:
+  - Pod security, image security, certificates
+  - Data encryption, RBAC, resource management
+  - Namespace isolation, network segmentation
+  - Vulnerability scanning
+
+**Show multi-cluster view (if ACM UI available):**
+- Navigate to ACM console → Governance → Policies
+- Show policy compliance status across all clusters
+- Demonstrate cluster-specific violations and auto-remediation
+- Export compliance reports for audit purposes
 
 ### 7. Secure Application Deployment (5 minutes)
 

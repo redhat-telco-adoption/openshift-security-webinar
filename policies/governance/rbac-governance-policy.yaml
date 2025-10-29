@@ -1,0 +1,203 @@
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-rbac-governance
+  namespace: default
+  annotations:
+    policy.open-cluster-management.io/standards: NIST SP 800-53, CIS Kubernetes Benchmark
+    policy.open-cluster-management.io/categories: AC Access Control
+    policy.open-cluster-management.io/controls: AC-3 Access Enforcement, AC-6 Least Privilege
+    policy.open-cluster-management.io/description: |
+      Enforce RBAC best practices across clusters. Prevent overly permissive
+      roles, ensure proper service account usage, and detect privilege
+      escalation risks.
+spec:
+  remediationAction: inform
+  disabled: false
+  policy-templates:
+    # Policy 1: Prevent cluster-admin binding to service accounts
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-no-cluster-admin-sa
+        spec:
+          remediationAction: inform
+          severity: high
+          object-templates-raw: |
+            {{- range (lookup "rbac.authorization.k8s.io/v1" "ClusterRoleBinding" "" "").items }}
+            {{- if eq .roleRef.name "cluster-admin" }}
+            {{- range .subjects }}
+            {{- if and (eq .kind "ServiceAccount") (ne .namespace "kube-system") (ne .namespace "openshift-") }}
+            - complianceType: mustnothave
+              objectDefinition:
+                apiVersion: rbac.authorization.k8s.io/v1
+                kind: ClusterRoleBinding
+                metadata:
+                  name: {{ $.metadata.name }}
+                subjects:
+                  - kind: ServiceAccount
+                    name: {{ .name }}
+                    namespace: {{ .namespace }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+    # Policy 2: Detect wildcard permissions in roles
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-no-wildcard-roles
+        spec:
+          remediationAction: inform
+          severity: high
+          namespaceSelector:
+            exclude:
+              - "kube-*"
+              - "openshift-*"
+          object-templates-raw: |
+            {{- range (lookup "rbac.authorization.k8s.io/v1" "Role" "" "").items }}
+            {{- $hasWildcard := false }}
+            {{- range .rules }}
+            {{- if or (has "*" .verbs) (has "*" .resources) (has "*" .apiGroups) }}
+            {{- $hasWildcard = true }}
+            {{- end }}
+            {{- end }}
+            {{- if $hasWildcard }}
+            - complianceType: mustnothave
+              objectDefinition:
+                apiVersion: rbac.authorization.k8s.io/v1
+                kind: Role
+                metadata:
+                  name: {{ .metadata.name }}
+                  namespace: {{ .metadata.namespace }}
+                rules:
+                  - verbs: ["*"]
+            {{- end }}
+            {{- end }}
+    # Policy 3: Ensure read-only roles for viewers
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-viewer-roles
+        spec:
+          remediationAction: enforce
+          severity: low
+          namespaceSelector:
+            include:
+              - "security-demo"
+              - "production"
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: rbac.authorization.k8s.io/v1
+                kind: Role
+                metadata:
+                  name: viewer
+                rules:
+                  - apiGroups: ["", "apps", "batch"]
+                    resources:
+                      - pods
+                      - deployments
+                      - replicasets
+                      - statefulsets
+                      - jobs
+                      - cronjobs
+                      - services
+                      - configmaps
+                    verbs: ["get", "list", "watch"]
+                  - apiGroups: [""]
+                    resources:
+                      - pods/log
+                    verbs: ["get", "list"]
+    # Policy 4: Prevent privilege escalation in roles
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-no-escalate-permissions
+        spec:
+          remediationAction: inform
+          severity: high
+          object-templates-raw: |
+            {{- range (lookup "rbac.authorization.k8s.io/v1" "ClusterRole" "" "").items }}
+            {{- range .rules }}
+            {{- if and (has "rbac.authorization.k8s.io" .apiGroups) (or (has "escalate" .verbs) (has "bind" .verbs) (has "*" .verbs)) }}
+            - complianceType: mustnothave
+              objectDefinition:
+                apiVersion: rbac.authorization.k8s.io/v1
+                kind: ClusterRole
+                metadata:
+                  name: {{ $.metadata.name }}
+                rules:
+                  - apiGroups: ["rbac.authorization.k8s.io"]
+                    resources: ["clusterroles", "roles"]
+                    verbs: ["escalate", "bind"]
+            {{- end }}
+            {{- end }}
+            {{- end }}
+    # Policy 5: Require service accounts for all pods
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-require-service-account
+        spec:
+          remediationAction: inform
+          severity: medium
+          namespaceSelector:
+            include:
+              - "security-demo"
+              - "production"
+          object-templates-raw: |
+            {{- range (lookup "v1" "Pod" "" "").items }}
+            {{- if or (not .spec.serviceAccountName) (eq .spec.serviceAccountName "default") }}
+            - complianceType: mustnothave
+              objectDefinition:
+                apiVersion: v1
+                kind: Pod
+                metadata:
+                  name: {{ .metadata.name }}
+                  namespace: {{ .metadata.namespace }}
+                spec:
+                  serviceAccountName: default
+            {{- end }}
+            {{- end }}
+    # Policy 6: Prevent automountServiceAccountToken unless needed
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-disable-auto-mount-token
+        spec:
+          remediationAction: inform
+          severity: medium
+          namespaceSelector:
+            include:
+              - "security-demo"
+              - "production"
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: ServiceAccount
+                metadata:
+                  name: default
+                automountServiceAccountToken: false
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: binding-rbac-governance
+  namespace: default
+placementRef:
+  name: placement-all-clusters
+  kind: PlacementRule
+  apiGroup: apps.open-cluster-management.io
+subjects:
+  - name: policy-rbac-governance
+    kind: Policy
+    apiGroup: policy.open-cluster-management.io

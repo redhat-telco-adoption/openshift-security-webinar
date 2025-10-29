@@ -1,0 +1,272 @@
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-network-security
+  namespace: default
+  annotations:
+    policy.open-cluster-management.io/standards: NIST SP 800-53, CIS Kubernetes Benchmark
+    policy.open-cluster-management.io/categories: SC System and Communications Protection
+    policy.open-cluster-management.io/controls: SC-7 Boundary Protection
+    policy.open-cluster-management.io/description: |
+      Enforce network segmentation and isolation across clusters using
+      NetworkPolicies. Implements zero-trust networking principles.
+spec:
+  remediationAction: inform
+  disabled: false
+  policy-templates:
+    # Policy 1: Require NetworkPolicies in all namespaces
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-require-network-policies
+        spec:
+          remediationAction: inform
+          severity: high
+          namespaceSelector:
+            include:
+              - "security-demo"
+              - "production"
+              - "staging"
+          object-templates-raw: |
+            {{- range (lookup "v1" "Namespace" "" "").items }}
+            {{- if or (eq .metadata.name "security-demo") (eq .metadata.name "production") (eq .metadata.name "staging") }}
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: networking.k8s.io/v1
+                kind: NetworkPolicy
+                metadata:
+                  namespace: {{ .metadata.name }}
+            {{- end }}
+            {{- end }}
+    # Policy 2: Default deny all ingress traffic
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-default-deny-ingress
+        spec:
+          remediationAction: enforce
+          severity: high
+          namespaceSelector:
+            include:
+              - "security-demo"
+              - "production"
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: networking.k8s.io/v1
+                kind: NetworkPolicy
+                metadata:
+                  name: deny-all-ingress
+                spec:
+                  podSelector: {}
+                  policyTypes:
+                    - Ingress
+    # Policy 3: Default deny all egress traffic
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-default-deny-egress
+        spec:
+          remediationAction: enforce
+          severity: high
+          namespaceSelector:
+            include:
+              - "security-demo"
+              - "production"
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: networking.k8s.io/v1
+                kind: NetworkPolicy
+                metadata:
+                  name: deny-all-egress
+                spec:
+                  podSelector: {}
+                  policyTypes:
+                    - Egress
+    # Policy 4: Allow DNS resolution
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-allow-dns
+        spec:
+          remediationAction: enforce
+          severity: medium
+          namespaceSelector:
+            include:
+              - "security-demo"
+              - "production"
+              - "staging"
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: networking.k8s.io/v1
+                kind: NetworkPolicy
+                metadata:
+                  name: allow-dns
+                spec:
+                  podSelector: {}
+                  policyTypes:
+                    - Egress
+                  egress:
+                    - to:
+                        - namespaceSelector:
+                            matchLabels:
+                              name: openshift-dns
+                      ports:
+                        - protocol: UDP
+                          port: 53
+                        - protocol: TCP
+                          port: 53
+    # Policy 5: Prevent cross-namespace communication (except allowed)
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-namespace-isolation
+        spec:
+          remediationAction: inform
+          severity: high
+          namespaceSelector:
+            include:
+              - "security-demo"
+              - "production"
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: networking.k8s.io/v1
+                kind: NetworkPolicy
+                metadata:
+                  name: deny-cross-namespace
+                spec:
+                  podSelector: {}
+                  policyTypes:
+                    - Ingress
+                  ingress:
+                    - from:
+                        - podSelector: {}
+    # Policy 6: Allow monitoring from OpenShift monitoring stack
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-allow-monitoring
+        spec:
+          remediationAction: enforce
+          severity: low
+          namespaceSelector:
+            include:
+              - "security-demo"
+              - "production"
+              - "staging"
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: networking.k8s.io/v1
+                kind: NetworkPolicy
+                metadata:
+                  name: allow-monitoring
+                spec:
+                  podSelector: {}
+                  policyTypes:
+                    - Ingress
+                  ingress:
+                    - from:
+                        - namespaceSelector:
+                            matchLabels:
+                              name: openshift-monitoring
+                      ports:
+                        - protocol: TCP
+                          port: 8080
+                        - protocol: TCP
+                          port: 8443
+    # Policy 7: Restrict egress to external networks
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-restrict-external-egress
+        spec:
+          remediationAction: inform
+          severity: medium
+          namespaceSelector:
+            include:
+              - "production"
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: networking.k8s.io/v1
+                kind: NetworkPolicy
+                metadata:
+                  name: restrict-external-egress
+                spec:
+                  podSelector: {}
+                  policyTypes:
+                    - Egress
+                  egress:
+                    # Allow internal cluster communication
+                    - to:
+                        - namespaceSelector: {}
+                    # Allow DNS
+                    - to:
+                        - namespaceSelector:
+                            matchLabels:
+                              name: openshift-dns
+                      ports:
+                        - protocol: UDP
+                          port: 53
+                    # Deny all other egress (implicit)
+    # Policy 8: Detect pods without network policies applied
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-pods-must-match-network-policy
+        spec:
+          remediationAction: inform
+          severity: medium
+          namespaceSelector:
+            include:
+              - "security-demo"
+              - "production"
+          object-templates-raw: |
+            {{- $networkPolicies := (lookup "networking.k8s.io/v1" "NetworkPolicy" "" "").items }}
+            {{- range (lookup "v1" "Pod" "" "").items }}
+            {{- if or (eq .metadata.namespace "security-demo") (eq .metadata.namespace "production") }}
+            {{- $podLabels := .metadata.labels }}
+            {{- $hasMatchingPolicy := false }}
+            {{- range $networkPolicies }}
+            {{- if eq $.metadata.namespace .metadata.namespace }}
+            {{- $hasMatchingPolicy = true }}
+            {{- end }}
+            {{- end }}
+            {{- if not $hasMatchingPolicy }}
+            - complianceType: mustnothave
+              objectDefinition:
+                apiVersion: v1
+                kind: Pod
+                metadata:
+                  name: {{ .metadata.name }}
+                  namespace: {{ .metadata.namespace }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: binding-network-security
+  namespace: default
+placementRef:
+  name: placement-all-clusters
+  kind: PlacementRule
+  apiGroup: apps.open-cluster-management.io
+subjects:
+  - name: policy-network-security
+    kind: Policy
+    apiGroup: policy.open-cluster-management.io

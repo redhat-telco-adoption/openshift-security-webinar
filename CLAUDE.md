@@ -12,10 +12,11 @@ This repository contains demo content for showcasing security features in Red Ha
 
 The repository is organized by resource type and security domain:
 
-- **`policies/`**: ACM Policy resources that enforce governance across clusters
-  - `security/`: Policies enforcing security standards (e.g., Pod Security Standards)
-  - `compliance/`: Policies for compliance operators and configurations
-  - `governance/`: General governance policies
+- **`policies/`**: ACM Policy resources that enforce governance across clusters (9 comprehensive policies)
+  - `security/`: Security policies (Pod Security Standards, image security, certificates, etcd encryption, namespace security, network policies)
+  - `compliance/`: Compliance policies (Container Security Operator)
+  - `governance/`: Governance policies (RBAC, resource quotas)
+  - See `policies/README.md` for detailed policy documentation
 
 - **`manifests/`**: OpenShift/Kubernetes resource definitions
   - `namespaces/`: Namespace definitions with Pod Security Admission labels
@@ -116,14 +117,22 @@ oc get role,rolebinding -n security-demo
 
 **ACM policy management:**
 ```bash
-# View all policies
+# View all policies (9 comprehensive policies)
 oc get policies -A
 
 # Check policy status
 oc describe policy <policy-name> -n default
 
-# View policy compliance
+# View policy compliance across all policies
 oc get policies -n default -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.compliant}{"\n"}{end}'
+
+# Test all ACM policies
+./scripts/test-acm-policies.sh
+
+# View specific policy details
+oc describe policy policy-image-security -n default
+oc describe policy policy-etcd-encryption -n default
+oc describe policy policy-rbac-governance -n default
 ```
 
 **Troubleshooting:**
@@ -205,7 +214,10 @@ The updated demo flow includes:
 3. **SCC with failures** (7 min) - Demonstrates host access and capability blocking
 4. **Network Policies with failures** (8 min) - Tests cross-namespace isolation
 5. **RBAC** (5 min)
-6. **ACM Policies** (8 min)
+6. **ACM Policies** (15 min) - **ENHANCED**: Now covers 9 comprehensive policies including:
+   - Pod Security Standards, Image Security, Certificate Management
+   - etcd Encryption, RBAC Governance, Resource Quotas
+   - Namespace Security, Network Policy Governance, Container Security Operator
 7. **Secure vs Insecure comparison** (5 min)
 8. **Defense-in-Depth summary** (3 min) - Table showing all layers
 9. **Conclusion** (2 min)
@@ -227,13 +239,27 @@ for f in manifests/**/*.yaml; do oc apply -f $f --dry-run=client; done
 ## Quick Reference: Resource Locations
 
 When modifying or adding demo content:
-- **ACM Policies**: `policies/security/pod-security-policy.yaml`, `policies/compliance/container-security-operator.yaml`
+
+**ACM Policies** (9 comprehensive policies):
+- `policies/security/pod-security-policy.yaml` - Pod Security Standards enforcement
+- `policies/security/image-security-policy.yaml` - Image registry and tag policies (NEW)
+- `policies/security/certificate-policy.yaml` - Certificate expiration monitoring (NEW)
+- `policies/security/etcd-encryption-policy.yaml` - Data-at-rest encryption (NEW)
+- `policies/security/namespace-security-policy.yaml` - Namespace security baseline (NEW)
+- `policies/security/network-policy-governance.yaml` - Zero-trust networking (NEW)
+- `policies/governance/rbac-governance-policy.yaml` - RBAC best practices (NEW)
+- `policies/governance/resource-quota-policy.yaml` - Resource limits and quotas (NEW)
+- `policies/compliance/container-security-operator.yaml` - Vulnerability scanning
+- `policies/README.md` - **Comprehensive policy documentation**
+
+**Other Resources**:
 - **Demo namespace**: `manifests/namespaces/demo-namespace.yaml` (uses `security-demo` namespace)
 - **Network isolation**: `manifests/network-policies/deny-all.yaml`
 - **Secure app example**: `applications/sample-app/deployment.yaml`
 - **Insecure examples**: `applications/insecure-examples/` (for demonstrating security violations)
-- **Demo walkthrough**: `docs/demo-script.md`
+- **Demo walkthrough**: `docs/demo-script.md` (updated with new ACM policies section)
 - **Security troubleshooting**: `docs/security-violations-guide.md`
+- **Policy testing**: `scripts/test-acm-policies.sh` (NEW)
 
 ## Demonstrating Security Failures
 
