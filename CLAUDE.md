@@ -65,6 +65,9 @@ oc project
 # Automated setup
 ./scripts/setup-demo.sh
 
+# Verify deployment (runs comprehensive tests)
+./scripts/test-demo.sh
+
 # Manual setup (step by step)
 oc apply -f manifests/namespaces/
 oc apply -f manifests/rbac/
@@ -73,6 +76,16 @@ oc apply -f manifests/scc/
 oc apply -f applications/sample-app/
 oc apply -f policies/security/
 oc apply -f policies/compliance/
+```
+
+**Test and validate:**
+```bash
+# Run full test suite
+./scripts/test-demo.sh
+
+# Test specific security enforcement
+oc apply -f applications/insecure-examples/privileged-pod.yaml --dry-run=server
+# Should show: Error from server (Forbidden)
 ```
 
 **Clean up demo:**

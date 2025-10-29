@@ -36,20 +36,47 @@ This repository contains demo content for showcasing security features in OpenSh
    oc login --server=<your-cluster-api> --token=<your-token>
    ```
 
-2. Create the demo namespace:
+2. Deploy the complete demo environment:
    ```bash
-   oc apply -f manifests/namespaces/
+   ./scripts/setup-demo.sh
    ```
 
-3. Apply security policies:
+3. Verify the deployment:
    ```bash
-   oc apply -f policies/security/
+   ./scripts/test-demo.sh
    ```
 
-4. Deploy sample application:
+4. Review the demo script:
    ```bash
-   oc apply -f applications/sample-app/
+   cat docs/demo-script.md
+   # or for presentation
+   cat docs/presentation-script.md
    ```
+
+### Manual Deployment
+
+If you prefer step-by-step deployment:
+
+```bash
+# Create namespace
+oc apply -f manifests/namespaces/
+
+# Apply RBAC
+oc apply -f manifests/rbac/
+
+# Apply Network Policies
+oc apply -f manifests/network-policies/
+
+# Apply Security Context Constraints (requires cluster-admin)
+oc apply -f manifests/scc/
+
+# Deploy secure application
+oc apply -f applications/sample-app/
+
+# Apply ACM policies (if ACM is installed)
+oc apply -f policies/security/
+oc apply -f policies/compliance/
+```
 
 ## Demo Topics
 
