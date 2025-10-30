@@ -1,8 +1,52 @@
 # OpenShift and ACM Security Demo - Presentation Script
 
-**Duration:** 50-55 minutes
+**Duration:** 60-65 minutes
 **Audience:** Technical stakeholders, architects, security teams
 **Goal:** Demonstrate defense-in-depth security in OpenShift with ACM
+
+## Presentation Structure
+
+| Section | Topic | Duration |
+|---------|-------|----------|
+| 1 | Introduction and Overview | 2-3 min |
+| 2 | Pod Security Standards (PSS) | 10 min |
+| 3 | Security Context Constraints (SCC) | 9 min |
+| 4 | Network Policies | 10 min |
+| 5 | RBAC Configuration | 7 min |
+| 6 | ACM Governance Policies (9 policies) | 17 min |
+| 7 | Secure vs Insecure Comparison | 5 min |
+| 8 | Defense-in-Depth Summary | 3 min |
+| 9 | Conclusion and Call to Action | 2-3 min |
+| | Q&A | 5-10 min |
+| **Total** | | **60-65 min** |
+
+---
+
+## Key Security Concepts
+
+Before presenting, familiarize yourself with these core concepts that underpin the demo:
+
+### Defense-in-Depth
+Multiple independent security layers working together. If one layer fails or is bypassed, other layers continue to provide protection. This demo shows six layers: PSS, SCC, Network Policies, RBAC, ACM Policies, and secure workload configuration.
+
+### Shift-Left Security
+Catching security violations early in the deployment pipeline rather than discovering them in production. Admission controllers (PSS and SCC) enforce security before pods are created, not after they're running.
+
+### Zero-Trust Networking
+"Never trust, always verify." Network Policies implement default-deny rules where all traffic is blocked unless explicitly allowed. This prevents lateral movement after a breach.
+
+### Least Privilege
+Grant the minimum permissions necessary for a user or workload to function. Applied in RBAC (API access), SCCs (pod capabilities), and ACM policies (cluster-level controls).
+
+### Admission Control vs Runtime Security
+- **Admission Control**: Security checks that happen when resources are created/updated (PSS, SCC)
+- **Runtime Security**: Security that operates while workloads are running (Network Policies, SELinux)
+
+### Policy as Code
+Security policies are defined declaratively as YAML/code, version-controlled, and automatically enforced. ACM policies demonstrate this at scale across cluster fleets.
+
+### Continuous Compliance
+Not a point-in-time audit, but ongoing monitoring and enforcement. ACM continuously evaluates policies and detects drift within minutes.
 
 ---
 
@@ -42,7 +86,7 @@ oc get pods -n security-demo
 
 ### Set Expectations
 
-> "Here's what we'll cover in the next 50 minutes:
+> "Here's what we'll cover in the next 60 minutes:
 > - Pod Security Standards that block dangerous containers at the door
 > - Security Context Constraints that enforce OpenShift-specific policies
 > - Network Policies that implement zero-trust networking
@@ -54,16 +98,54 @@ oc get pods -n security-demo
 
 ---
 
-## Section 2: Pod Security Standards (8 minutes)
+## Section 2: Pod Security Standards (10 minutes)
 
 ### Transition
 
-> "Let's start with the first line of defense: Pod Security Standards, also known as PSS. This is Kubernetes-native admission control that operates at the namespace level."
+**Say:**
+> "Let's start with the first line of defense: Pod Security Standards, also known as PSS. This is Kubernetes-native admission control that operates at the namespace level.
+>
+> Before we dive into the demo, let me explain what Pod Security Standards actually are and why they're critical."
+
+### Background: What are Pod Security Standards?
+
+**Say:**
+> "Pod Security Standards are a Kubernetes-native way to enforce security best practices for pod specifications. Think of them as a built-in security guard at the door of your namespace.
+>
+> They were introduced to replace the deprecated PodSecurityPolicy, and they work by evaluating pod specifications against predefined security profiles. If a pod doesn't meet the requirements of the profile assigned to the namespace, it's rejected before it ever gets scheduled.
+>
+> This is **admission control**—security happens at the API level, not at runtime. By the time a pod is running, it's already been validated against these standards."
+
+### The Three Security Profiles
+
+**Say:**
+> "There are three profiles, each with increasing security restrictions:
+>
+> **Privileged**: Unrestricted—allows everything, including dangerous configurations. This is for system-level workloads like CNI plugins and storage drivers that need host access.
+>
+> **Baseline**: Minimally restrictive—prevents the most common privilege escalations, like privileged containers and host path mounts. This is a good starting point for most applications.
+>
+> **Restricted**: Heavily restricted—enforces current pod hardening best practices. This requires running as non-root, dropping all capabilities, using read-only root filesystems, and more. This is what production workloads should aim for.
+>
+> We're using the **restricted** profile in this demo because it represents security best practices."
+
+### The Three Enforcement Modes
+
+**Say:**
+> "Each profile can be applied in three different modes:
+>
+> **Enforce**: Violations are rejected—the pod will not be created. This is active enforcement.
+>
+> **Audit**: Violations are allowed but logged to the audit log. This is useful for understanding what would break before enforcing.
+>
+> **Warn**: Violations are allowed but a warning is returned to the user. This gives immediate feedback without blocking.
+>
+> You can use all three modes simultaneously on a namespace. For example, you might enforce 'baseline' while auditing and warning on 'restricted' to see what would need to change to move to the stricter profile."
 
 ### Show Namespace Configuration
 
 **Say:**
-> "First, let me show you how we've configured our demo namespace. I'm going to look at the namespace labels."
+> "Now let's see this in action. First, let me show you how we've configured our demo namespace."
 
 **Command:**
 ```bash
@@ -73,7 +155,12 @@ oc get namespace security-demo -o yaml | grep -A 5 labels
 **Say:**
 > "Notice these three labels here: `pod-security.kubernetes.io/enforce`, `audit`, and `warn`. These are all set to 'restricted', which is the most secure profile available.
 >
-> There are three profiles—privileged, baseline, and restricted. We're using restricted, which means this namespace will reject any pod that doesn't meet strict security requirements. The 'enforce' mode means violations are blocked, not just logged."
+> All three modes are set to 'restricted', which means:
+> - Violations will be **blocked** (enforce)
+> - Violations will be **logged** in the audit log (audit)
+> - Users will see **warnings** in their kubectl output (warn)
+>
+> This gives us defense-in-depth even within the Pod Security Standards themselves."
 
 ### FAILURE SCENARIO 1: Privileged Container
 
@@ -138,14 +225,51 @@ oc get deployment secure-app -n security-demo -o yaml | grep -A 10 securityConte
 
 ---
 
-## Section 3: Security Context Constraints (7 minutes)
+## Section 3: Security Context Constraints (9 minutes)
 
 ### Transition
 
 **Say:**
-> "Security Context Constraints, or SCCs, are OpenShift's additional layer of admission control. While Pod Security Standards are Kubernetes-native, SCCs are specific to OpenShift and provide more granular control over security policies."
+> "We've seen Pod Security Standards—the Kubernetes-native layer. Now let's talk about Security Context Constraints, or SCCs, which are OpenShift's additional layer of admission control.
+>
+> Let me explain what SCCs are and why OpenShift provides this extra layer."
+
+### Background: What are Security Context Constraints?
+
+**Say:**
+> "Security Context Constraints are OpenShift's way of controlling what security-sensitive actions pods and containers can perform. They were created before Pod Security Standards existed and provide more fine-grained control than PSS.
+>
+> Think of SCCs as a more detailed security policy engine. While Pod Security Standards say 'you can't run privileged containers,' SCCs let you specify exactly which user IDs are allowed, which specific Linux capabilities can be used, which volume types are permitted, whether SELinux contexts are enforced, and much more.
+>
+> SCCs are also **admission controllers**, meaning they evaluate pod specifications before pods are created. But they work differently than PSS."
+
+### How SCCs Work: The Selection Process
+
+**Say:**
+> "Here's how it works: When you try to create a pod, OpenShift looks at:
+> 1. The service account the pod is using
+> 2. All SCCs that service account has access to
+> 3. The pod's security context requirements
+>
+> Then OpenShift picks the **most restrictive SCC** that allows the pod to run. This is important—it automatically uses the most secure option available.
+>
+> If no SCC matches the pod's requirements, the pod is rejected. This is the security gate in action."
+
+### SCCs vs Pod Security Standards
+
+**Say:**
+> "You might be wondering: why have both PSS and SCCs? Great question.
+>
+> Pod Security Standards are **broad categories**—privileged, baseline, or restricted. They're simple and portable across any Kubernetes cluster.
+>
+> SCCs are **fine-grained policies**—you can create custom SCCs that say 'this specific service account can use this specific capability for this specific use case.' They're more flexible and powerful, but they're OpenShift-specific.
+>
+> Together, they provide **defense-in-depth**. Even if one layer has a misconfiguration, the other layer still protects you."
 
 ### Show Available SCCs
+
+**Say:**
+> "Let's look at what SCCs are available in this cluster."
 
 **Command:**
 ```bash
@@ -153,7 +277,14 @@ oc get scc
 ```
 
 **Say:**
-> "OpenShift ships with several SCCs by default. Let's look at the restricted SCC we created for this demo."
+> "OpenShift ships with several default SCCs:
+> - **restricted**: The most secure—used for most applications
+> - **restricted-v2**: The updated version aligned with PSS restricted profile
+> - **nonroot**: Allows running as any non-root user
+> - **hostnetwork**: Allows host network access
+> - **privileged**: Allows everything—only for system workloads
+>
+> Now let's look at the custom restricted SCC we created for this demo."
 
 **Command:**
 ```bash
@@ -161,7 +292,17 @@ oc describe scc demo-restricted-scc | head -30
 ```
 
 **Say:**
-> "This SCC defines very specific constraints: which user IDs are allowed, what Linux capabilities can be used, which volume types are permitted, and whether host access is allowed. Notice that `allowHostNetwork: false`, `allowPrivilegedContainer: false`. These policies are enforced at the API level."
+> "Look at these constraints. This SCC defines:
+> - **Allow Privileged**: false—no privileged containers
+> - **Allow Host Network**: false—no access to host networking
+> - **Allow Host PID/IPC**: false—no access to host process or IPC namespaces
+> - **Allow Host Ports**: false—can't bind to host ports
+> - **Allowed Capabilities**: none—no Linux capabilities allowed
+> - **Run As User Strategy**: MustRunAsNonRoot—must run as non-root
+> - **SELinux Context Strategy**: MustRunAs—SELinux labels enforced
+> - **FSGroup Strategy**: MustRunAs—file system group IDs restricted
+>
+> This is a comprehensive security policy. Every aspect of pod security is explicitly controlled."
 
 ### FAILURE SCENARIO 3: Host Access
 
@@ -220,12 +361,56 @@ oc describe scc restricted | grep -A 5 "Allowed Capabilities"
 
 ---
 
-## Section 4: Network Policies (8 minutes)
+## Section 4: Network Policies (10 minutes)
 
 ### Transition
 
 **Say:**
-> "Even if a pod gets deployed with proper security contexts, we need to control how it communicates on the network. This is where Network Policies come in. Let's examine the network isolation we've configured."
+> "We've seen two layers of admission control—PSS and SCCs. These prevent insecure pods from being created in the first place. But what about runtime security? What happens after a pod is running?
+>
+> This is where Network Policies come in. Let me explain what they are and why they're critical for defense-in-depth."
+
+### Background: What are Network Policies?
+
+**Say:**
+> "Network Policies are Kubernetes-native firewall rules for your pods. They control traffic flow at the IP address and port level—Layer 3 and Layer 4 in the OSI model.
+>
+> Think of them as distributed firewall rules that move with your workloads. Instead of configuring traditional firewalls based on IP addresses—which constantly change in Kubernetes—you define policies based on pod labels, namespaces, and CIDR blocks.
+>
+> This is **micro-segmentation**—fine-grained network isolation at the pod level, not just at the perimeter."
+
+### The Default-Allow Problem
+
+**Say:**
+> "Here's a critical security fact about Kubernetes: **by default, all pods can communicate with all other pods in the cluster**. This is a 'default-allow' posture.
+>
+> That means if an attacker compromises a pod in your dev namespace, they can immediately start probing and attacking pods in your production namespace, your database namespace, your payment processing namespace—everything.
+>
+> This is called **lateral movement**, and it's how attackers expand their foothold after initial compromise. The Kubernetes default makes lateral movement trivially easy.
+>
+> Network Policies let us flip this to **default-deny**, which is the zero-trust approach."
+
+### How Network Policies Work
+
+**Say:**
+> "Network Policies use label selectors to define:
+> - **Which pods** the policy applies to (using `podSelector`)
+> - **Which sources** can send traffic to those pods (using `ingress` rules)
+> - **Which destinations** those pods can send traffic to (using `egress` rules)
+>
+> They're implemented by your CNI plugin—the container network interface. In OpenShift, that's OVN-Kubernetes or OpenShift SDN. The CNI plugin programs these rules into the network data plane, so enforcement happens at the Linux kernel level with minimal overhead.
+>
+> This is not application-layer filtering—it's network-layer enforcement, which makes it very efficient and very difficult to bypass."
+
+### Zero-Trust Networking Strategy
+
+**Say:**
+> "Our strategy is:
+> 1. **Default-deny everything**—start with a policy that blocks all ingress and egress
+> 2. **Explicitly allow required traffic**—only permit the specific flows your application needs
+> 3. **Apply policies consistently**—use the same patterns across all namespaces
+>
+> This is zero-trust networking: trust nothing by default, verify everything explicitly. Let's see this in action."
 
 ### Show Network Policies
 
@@ -329,12 +514,58 @@ oc delete namespace test-namespace
 
 ---
 
-## Section 5: RBAC Configuration (5 minutes)
+## Section 5: RBAC Configuration (7 minutes)
 
 ### Transition
 
 **Say:**
-> "Now let's talk about who can do what in the cluster. This is where Role-Based Access Control, or RBAC, comes in. RBAC controls access to the Kubernetes API—who can create pods, delete services, view secrets, and so on."
+> "We've secured pod admission and runtime networking. Now let's talk about controlling **who can do what** in the cluster. This is where Role-Based Access Control, or RBAC, comes in.
+>
+> Let me explain what RBAC is and why it's essential for multi-tenant Kubernetes environments."
+
+### Background: What is RBAC?
+
+**Say:**
+> "RBAC—Role-Based Access Control—is Kubernetes' authorization system. It controls access to the Kubernetes API server, which is the brain of your cluster.
+>
+> Every action in Kubernetes—creating a pod, deleting a service, reading a secret, scaling a deployment—goes through the API server. RBAC is the gatekeeper that decides whether a user or service account is allowed to perform that action.
+>
+> This is **API-level authorization**. Even if you can authenticate to the cluster, RBAC determines what you're authorized to do."
+
+### How RBAC Works: The Four Resource Types
+
+**Say:**
+> "RBAC has four core resource types that work together:
+>
+> **1. Role / ClusterRole**: Defines a set of permissions—what actions (verbs) are allowed on what resources. A Role is namespace-scoped, while a ClusterRole is cluster-wide.
+>
+> **2. RoleBinding / ClusterRoleBinding**: Connects a Role to subjects—users, groups, or service accounts. This is how you grant permissions.
+>
+> **3. ServiceAccount**: Represents the identity of a pod. When your pod needs to talk to the API server, it uses its service account credentials.
+>
+> **4. Subject**: The entity (user, group, or service account) that's being granted permissions.
+>
+> Think of it like a lock and key system: Roles define what doors can be opened, RoleBindings determine who gets which keys."
+
+### The Principle of Least Privilege
+
+**Say:**
+> "The core principle of RBAC security is **least privilege**: grant users and workloads the minimum permissions they need to function, nothing more.
+>
+> This limits the blast radius of a compromise. If an attacker compromises a developer's credentials or a pod's service account, they should only get access to a narrow slice of the cluster—not everything.
+>
+> Unfortunately, overly permissive RBAC is one of the most common Kubernetes security mistakes. We've all seen the demo where someone binds `cluster-admin` to the `default` service account. That's giving every pod in that namespace full cluster control—catastrophic if any pod is compromised."
+
+### RBAC for Multi-Tenancy
+
+**Say:**
+> "In a multi-tenant cluster—where multiple teams share the same cluster—RBAC becomes critical:
+> - Dev teams should only access their namespaces
+> - Operators should have cluster-wide view but limited write access
+> - Automated systems should have service accounts with specific permissions
+> - Admins should use separate accounts for daily tasks vs. emergency access
+>
+> Let's look at how we've configured RBAC for this demo."
 
 ### Show Role
 
@@ -365,14 +596,67 @@ oc describe rolebinding developer-binding -n security-demo
 
 ---
 
-## Section 6: ACM Governance Policies (15 minutes)
+## Section 6: ACM Governance Policies (17 minutes)
 
 ### Transition
 
 **Say:**
 > "Everything we've seen so far applies to a single cluster. But what about organizations running tens or hundreds of OpenShift clusters? How do you enforce consistent security policies across all of them? That's where Red Hat Advanced Cluster Management comes in.
 >
-> We've implemented a comprehensive governance framework with nine security policies covering everything from pod security to encryption at rest. Let me show you how this scales security governance across your entire infrastructure."
+> Let me explain what ACM is and how it scales security governance to enterprise fleets."
+
+### Background: The Multi-Cluster Challenge
+
+**Say:**
+> "Modern enterprises don't run one Kubernetes cluster—they run dozens or hundreds. You might have:
+> - Clusters in different data centers for geographic distribution
+> - Clusters in different clouds for redundancy
+> - Clusters for different environments—dev, staging, production
+> - Clusters for different business units or tenants
+> - Edge clusters in retail stores, factories, or cell towers
+>
+> Each cluster is a security boundary. And here's the problem: how do you ensure consistent security policies across all of them?
+>
+> If you're manually configuring each cluster, you **will** have drift. Someone forgets to enable etcd encryption on cluster 47. Someone configures the wrong Pod Security profile on cluster 89. Someone disables network policies for troubleshooting and forgets to re-enable them.
+>
+> This is where ACM's governance framework comes in."
+
+### What is ACM?
+
+**Say:**
+> "Red Hat Advanced Cluster Management is a multi-cluster management platform. It provides:
+> - **Cluster lifecycle management**: Create, upgrade, and destroy clusters from a central console
+> - **Application lifecycle management**: Deploy applications across clusters
+> - **Observability**: Unified monitoring and alerting
+> - **Governance**: The feature we're focusing on today—policy-based compliance and security enforcement
+>
+> ACM uses a **hub-and-spoke model**: One hub cluster manages many managed clusters. The hub is your control plane for the entire fleet."
+
+### How ACM Governance Works
+
+**Say:**
+> "ACM's governance framework uses three core concepts:
+>
+> **1. Policies**: Define the desired state or compliance rules. For example, 'all namespaces must have Pod Security labels' or 'etcd must be encrypted.'
+>
+> **2. PlacementRules**: Define which clusters receive which policies using label selectors. For example, 'apply this policy to all production clusters in us-east-1' or 'apply this to all edge clusters.'
+>
+> **3. PlacementBindings**: Connect policies to placement rules. This is how you bind a policy to a set of clusters.
+>
+> ACM continuously evaluates these policies on target clusters and reports compliance status back to the hub. This is **continuous compliance monitoring**, not a point-in-time audit."
+
+### Inform vs. Enforce: Two Modes of Remediation
+
+**Say:**
+> "ACM policies support two remediation modes:
+>
+> **Inform mode**: ACM detects violations and reports them, but doesn't change anything. This is audit mode—you get visibility without risk of breaking workloads.
+>
+> **Enforce mode**: ACM automatically creates, updates, or deletes resources to bring clusters into compliance. This is active remediation—policy as code that self-heals your infrastructure.
+>
+> The best practice is to start with **inform** to understand impact, then switch to **enforce** once you're confident the policy won't break anything.
+>
+> We've implemented a comprehensive governance framework with nine security policies covering everything from pod security to encryption at rest. Let me walk you through them."
 
 ### Show ACM Policies Overview
 
@@ -737,6 +1021,30 @@ oc get deployment secure-app -n security-demo -o yaml | grep -A 15 "securityCont
 >
 > This is security by default, not security as an afterthought."
 
+### Why This Works: The Complete Security Stack
+
+**Say:**
+> "Let me show you one more view—what makes each layer effective:
+
+| Layer | Enforcement Point | What It Prevents | Why It's Hard to Bypass |
+|-------|------------------|------------------|-------------------------|
+| **Pod Security Standards** | API admission | Privileged containers, root users, host access | Kubernetes-native, evaluated before scheduling |
+| **Security Context Constraints** | API admission | Specific capabilities, volume types, user IDs | OpenShift admission controller, runs after PSS |
+| **Network Policies** | Network data plane | Lateral movement, unauthorized connections | CNI-enforced at kernel level, pod identity-based |
+| **RBAC** | API authorization | Unauthorized API access, privilege escalation | Every API request checked, token-based auth |
+| **ACM Policies** | Multi-cluster governance | Configuration drift, non-compliant clusters | Continuous evaluation, centralized enforcement |
+| **Secure Workloads** | Application design | Runtime vulnerabilities, misconfigurations | Security built into the application itself |
+
+**Say:**
+> "Notice that each layer operates at a **different enforcement point**. An attacker would need to bypass:
+> - The API admission layer (PSS and SCC)
+> - The network enforcement layer (Network Policies)
+> - The API authorization layer (RBAC)
+> - The governance layer (ACM)
+> - The application security layer (secure workload design)
+>
+> That's five different attack surfaces they need to compromise simultaneously. That's defense-in-depth."
+
 ---
 
 ## Section 9: Conclusion (2-3 minutes)
@@ -868,9 +1176,23 @@ oc get namespace security-demo
 - Have a backup plan if cluster is unavailable
 
 ### Time Management
-- If running short: Skip RBAC section or shorten ACM section
-- If running long: Combine failure scenarios 3 & 4
-- Always leave 5 minutes for Q&A
+- If running short: Skip RBAC section or reduce ACM to 3 key policies (Pod Security, etcd Encryption, RBAC Governance)
+- If running long: Combine failure scenarios 3 & 4, skip the secure vs insecure comparison
+- Always leave 5-10 minutes for Q&A
+- Use the presentation structure table to track pacing throughout
+
+### Handling Technical Questions During Demo
+
+If asked technical questions mid-presentation:
+
+**For Simple Questions:**
+> "Great question. [Brief 1-2 sentence answer]. I'll circle back to this in the Q&A if you want more details."
+
+**For Complex Questions:**
+> "That's an excellent question that deserves a thorough answer. Let me note that down and we'll dig into it during Q&A so we can give it proper attention."
+
+**For Off-Topic Questions:**
+> "That's outside the scope of today's demo, but I'd be happy to connect you with resources or schedule a follow-up discussion about [topic]."
 
 ---
 
